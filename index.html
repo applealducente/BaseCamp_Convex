@@ -360,31 +360,27 @@ function addNewTab(){
 }
 function exportSite(){
   var pages=getPages();
-  var freshJson=JSON.stringify(pages);
-  var currentHtml=document.documentElement.outerHTML;
-  // Replace the DEFAULT_PAGES JSON.parse line with updated data
-  var oldMatch=currentHtml.match(/var DEFAULT_PAGES=JSON\.parse\((".*?")\);/);
-  if(!oldMatch){alert("Could not find page data to export.");return;}
-  var newLine='var DEFAULT_PAGES=JSON.parse('+JSON.stringify(freshJson)+');';
-  var newHtml='<!DOCTYPE html>\n<html lang="en">'+currentHtml.substring(currentHtml.indexOf("<head>"));
-  newHtml=newHtml.replace(oldMatch[0],newLine);
-  // Also clear any localStorage dependency
-  var blob=new Blob([newHtml],{type:"text/html"});
+  var sections=getSections();
+  var tm=getTagMap();
+  var el=document.documentElement.cloneNode(true);
+  var scriptEl=el.querySelector("script");
+  var scriptText=scriptEl.textContent;
+  // Update DEFAULT_PAGES
+  var pagesJson=JSON.stringify(pages);
+  scriptText=scriptText.replace(/var DEFAULT_PAGES=JSON\.parse\(.*?\);/,'var DEFAULT_PAGES=JSON.parse('+JSON.stringify(pagesJson).replace(/\\/g,'\\\\').replace(/\$/g,'$$$$')+');');
+  // Update DEFAULT_SECTIONS
+  scriptText=scriptText.replace(/var DEFAULT_SECTIONS=\[.*?\];/,'var DEFAULT_SECTIONS='+JSON.stringify(sections)+';');
+  // Update DEFAULT_TAG_MAP
+  scriptText=scriptText.replace(/var DEFAULT_TAG_MAP=\{.*?\};/,'var DEFAULT_TAG_MAP='+JSON.stringify(tm)+';');
+  scriptEl.textContent=scriptText;
+  var fullHtml="<!DOCTYPE html>\n"+el.outerHTML;
+  var blob=new Blob([fullHtml],{type:"text/html"});
   var a=document.createElement("a");
   a.href=URL.createObjectURL(blob);
   a.download="index.html";
   a.click();
   URL.revokeObjectURL(a.href);
-  // Also bake sections into the exported HTML
-  var customSections=getSections();
-  var customTagMap=getTagMap();
-  if(customSections.length!==DEFAULT_SECTIONS.length){
-    var oldSectLine=newHtml.match(/var DEFAULT_SECTIONS=\[.*?\];/);
-    if(oldSectLine)newHtml=newHtml.replace(oldSectLine[0],'var DEFAULT_SECTIONS='+JSON.stringify(customSections)+';');
-    var oldTmLine=newHtml.match(/var DEFAULT_TAG_MAP=\{.*?\};/);
-    if(oldTmLine)newHtml=newHtml.replace(oldTmLine[0],'var DEFAULT_TAG_MAP='+JSON.stringify(customTagMap)+';');
-  }
-  alert("Downloaded! Replace the index.html in your GitHub repo with this file, and your changes will be live for everyone.");
+  alert("Downloaded! Replace the index.html in your GitHub repo with this file to push your changes live for everyone.");
 }
 document.addEventListener("DOMContentLoaded",function(){
   homeGrid=document.getElementById("homeGrid");
