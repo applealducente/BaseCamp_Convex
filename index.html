@@ -74,7 +74,7 @@ a:hover{color:var(--gold);}
 .admin-on .card-edit-btn{display:block;}
 .add-card{background:var(--surface2);border:2px dashed var(--border);border-radius:var(--radius);padding:28px;cursor:pointer;display:none;text-align:center;color:var(--ink-muted);font-size:13px;font-weight:600;transition:all 0.15s;}
 .add-card:hover{border-color:var(--gold);color:var(--gold);background:var(--gold-soft);}
-.admin-on .add-card{display:block;}
+.admin-on .add-card{display:block;}.add-tab-btn{display:none;padding:7px 12px;border-radius:20px;font-size:12.5px;font-weight:600;cursor:pointer;border:1.5px dashed var(--border);background:transparent;color:var(--ink-muted);font-family:inherit;transition:all 0.15s;}.add-tab-btn:hover{border-color:var(--gold);color:var(--gold);}.admin-on .add-tab-btn{display:inline-block;}
 
 /* PAGE VIEW */
 .page-view{display:none;padding:32px 24px 80px;max-width:740px;margin:0 auto;animation:fadeUp 0.2s ease;}
@@ -171,15 +171,7 @@ a:hover{color:var(--gold);}
 <p>Training, tools, compliance, and scripts. Everything you need, one search away.</p>
 </div>
 
-<div class="cat-tabs" id="catTabs">
-<div class="cat-tab active" data-filter="all">All</div>
-<div class="cat-tab" data-filter="training">Training</div>
-<div class="cat-tab" data-filter="tools">Tools</div>
-<div class="cat-tab" data-filter="aftersales">After-Sales</div>
-<div class="cat-tab" data-filter="compliance">Compliance</div>
-<div class="cat-tab" data-filter="templates">Templates</div>
-<div class="cat-tab" data-filter="support">Support</div>
-</div>
+<div class="cat-tabs" id="catTabs"></div>
 
 <div class="home" id="homeGrid"></div>
 <div class="page-view" id="pageView"></div>
@@ -271,7 +263,7 @@ function openEditor(id){
   var pages=getPages();
   var p=id?pages.find(function(x){return x.id===id;}):null;
   var sects="";
-  sectionOrder.forEach(function(s){sects+="<option value='"+s+"' "+(p&&p.section===s?"selected":"")+">"+s+"</option>";});
+  getSections().forEach(function(s){sects+="<option value='"+s+"' "+(p&&p.section===s?"selected":"")+">"+s+"</option>";});
   var delBtn=p?"<button class='btn-delete' onclick=\"deletePage('"+p.id+"')\">Delete</button>":"";
   var saveId=id||"";
   editModal.innerHTML="<h2>"+(p?"Edit Page":"New Page")+"</h2>"+
@@ -324,6 +316,48 @@ function exportPages(){
 }
 
 
+
+var DEFAULT_SECTIONS=["Training","Tools & Systems","After-Sales","Compliance","Templates","Customer Support"];
+var DEFAULT_TAG_MAP={"Training":"training","Tools & Systems":"tools","After-Sales":"aftersales","Compliance":"compliance","Templates":"templates","Customer Support":"support"};
+
+function loadSections(){try{var s=localStorage.getItem("kb_sections");if(s)return JSON.parse(s);}catch(e){}return null;}
+function saveSections(s){localStorage.setItem("kb_sections",JSON.stringify(s));}
+function getSections(){return loadSections()||DEFAULT_SECTIONS.slice();}
+function loadTagMap(){try{var s=localStorage.getItem("kb_tagmap");if(s)return JSON.parse(s);}catch(e){}return null;}
+function saveTagMap(m){localStorage.setItem("kb_tagmap",JSON.stringify(m));}
+function getTagMap(){return loadTagMap()||Object.assign({},DEFAULT_TAG_MAP);}
+
+function renderTabs(){
+  var sections=getSections();
+  var tm=getTagMap();
+  var h='<div class="cat-tab active" data-filter="all">All</div>';
+  sections.forEach(function(s){
+    var tag=tm[s]||s.toLowerCase().replace(/[^a-z0-9]/g,"");
+    h+='<div class="cat-tab" data-filter="'+tag+'">'+s+'</div>';
+  });
+  h+='<button class="add-tab-btn" onclick="addNewTab()">+ Tab</button>';
+  catTabs.innerHTML=h;
+}
+
+function addNewTab(){
+  var name=prompt("New tab name (e.g. Resources, Guides):");
+  if(!name||!name.trim())return;
+  name=name.trim();
+  var tag=name.toLowerCase().replace(/[^a-z0-9]/g,"");
+  var sections=getSections();
+  var tm=getTagMap();
+  if(sections.indexOf(name)>=0){alert("Tab already exists.");return;}
+  sections.push(name);
+  tm[name]=tag;
+  saveSections(sections);
+  saveTagMap(tm);
+  // Also update the sectionOrder and tagMap/tagClass vars
+  sectionOrder.push(name);
+  tagMap[name]=tag;
+  tagClass[tag]="tag-training"; // default style
+  renderTabs();
+  renderHome(searchInput.value,activeCat);
+}
 function exportSite(){
   var pages=getPages();
   var freshJson=JSON.stringify(pages);
@@ -341,6 +375,15 @@ function exportSite(){
   a.download="index.html";
   a.click();
   URL.revokeObjectURL(a.href);
+  // Also bake sections into the exported HTML
+  var customSections=getSections();
+  var customTagMap=getTagMap();
+  if(customSections.length!==DEFAULT_SECTIONS.length){
+    var oldSectLine=newHtml.match(/var DEFAULT_SECTIONS=\[.*?\];/);
+    if(oldSectLine)newHtml=newHtml.replace(oldSectLine[0],'var DEFAULT_SECTIONS='+JSON.stringify(customSections)+';');
+    var oldTmLine=newHtml.match(/var DEFAULT_TAG_MAP=\{.*?\};/);
+    if(oldTmLine)newHtml=newHtml.replace(oldTmLine[0],'var DEFAULT_TAG_MAP='+JSON.stringify(customTagMap)+';');
+  }
   alert("Downloaded! Replace the index.html in your GitHub repo with this file, and your changes will be live for everyone.");
 }
 document.addEventListener("DOMContentLoaded",function(){
@@ -357,7 +400,7 @@ document.addEventListener("DOMContentLoaded",function(){
   editOverlay.addEventListener("click",function(e){if(e.target===editOverlay)closeEditor();});
   document.getElementById("pwOverlay").addEventListener("click",function(e){if(e.target.id==="pwOverlay")e.target.classList.remove("show");});
 
-  renderHome();
+  sectionOrder=getSections();tagMap=getTagMap();renderTabs();renderHome();
 });
 </script>
 </body>
