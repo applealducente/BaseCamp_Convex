@@ -388,76 +388,49 @@ function exportSite(){
 var GH_TOKEN=localStorage.getItem("gh_token")||"";
 var GH_REPO=localStorage.getItem("gh_repo")||"";  // e.g. "appleusername/basecamp_convex"
 
-async function loadFromKV(){
-  // No remote load needed - Vercel serves the latest committed file
-  // Just use whatever is in the HTML (DEFAULT_PAGES) or localStorage
-  return;
-}
+async function loadFromKV(){return;}
 
 async function publishChanges(){
-  // Check if GitHub is configured
+  var btn=document.getElementById("publishBtn");
   var token=localStorage.getItem("gh_token");
   var repo=localStorage.getItem("gh_repo");
-
-  if(!token||!repo){
-    var t=prompt("Enter your GitHub Personal Access Token (with repo scope):");
-    if(!t){return;}
-    var r=prompt("Enter your GitHub repo (e.g. yourusername/basecamp_convex):");
-    if(!r){return;}
-    localStorage.setItem("gh_token",t.trim());
-    localStorage.setItem("gh_repo",r.trim());
-    token=t.trim();repo=r.trim();
+  if(!token){
+    token=prompt("Enter your GitHub Personal Access Token:\n\nGet one at: github.com > Settings > Developer settings > Personal access tokens > Tokens (classic) > Generate new token > tick repo");
+    if(!token||!token.trim())return;
+    localStorage.setItem("gh_token",token.trim());
+    token=token.trim();
   }
-
-  var btn=document.getElementById("publishBtn");
+  if(!repo){
+    repo=prompt("Enter your GitHub repo (e.g. yourusername/basecamp_convex):");
+    if(!repo||!repo.trim())return;
+    localStorage.setItem("gh_repo",repo.trim());
+    repo=repo.trim();
+  }
   if(btn){btn.textContent="Publishing...";btn.disabled=true;}
-
   try{
-    // Get current file SHA (required for update)
-    var shaRes=await fetch("https://api.github.com/repos/"+repo+"/contents/index.html",{
-      headers:{"Authorization":"token "+token,"Accept":"application/vnd.github.v3+json"}
-    });
-    if(!shaRes.ok)throw new Error("Could not access repo. Check your token and repo name.");
-    var shaData=await shaRes.json();
-    var sha=shaData.sha;
-
-    // Build updated index.html with current pages baked in
-    var pages=getPages();
-    var sections=getSections();
-    var tm=getTagMap();
-    var pagesJson=JSON.stringify(pages);
-    var sectJson=JSON.stringify(sections);
-    var tmJson=JSON.stringify(tm);
-
-    // Get current file content
-    var currentContent=atob(shaData.content.replace(/\n/g,""));
-
-    // Replace DEFAULT_PAGES
-    currentContent=currentContent.replace(/var DEFAULT_PAGES=JSON\.parse\(.*?\);/,
-      "var DEFAULT_PAGES=JSON.parse("+JSON.stringify(pagesJson)+");");
-    // Replace DEFAULT_SECTIONS
-    currentContent=currentContent.replace(/var DEFAULT_SECTIONS=\[.*?\];/,
-      "var DEFAULT_SECTIONS="+sectJson+";");
-    // Replace DEFAULT_TAG_MAP
-    currentContent=currentContent.replace(/var DEFAULT_TAG_MAP=\{.*?\};/,
-      "var DEFAULT_TAG_MAP="+tmJson+";");
-
-    // Encode back to base64
-    var encoded=btoa(unescape(encodeURIComponent(currentContent)));
-
-    // Commit to GitHub
+    var infoRes=await fetch("https://api.github.com/repos/"+repo+"/contents/index.html",{headers:{"Authorization":"Bearer "+token,"Accept":"application/vnd.github.v3+json"}});
+    if(!infoRes.ok){var err=await infoRes.json();throw new Error(err.message||"Cannot access repo");}
+    var info=await infoRes.json();
+    var sha=info.sha;
+    var currentHtml=decodeURIComponent(escape(atob(info.content.replace(/\n/g,""))));
+    var pJson=JSON.stringify(getPages());
+    var sJson=JSON.stringify(getSections());
+    var tJson=JSON.stringify(getTagMap());
+    var updated=currentHtml
+      .replace(/var DEFAULT_PAGES=JSON\.parse\(.*?\);/,"var DEFAULT_PAGES=JSON.parse("+JSON.stringify(pJson)+");")
+      .replace(/var DEFAULT_SECTIONS=\[.*?\];/,"var DEFAULT_SECTIONS="+sJson+";")
+      .replace(/var DEFAULT_TAG_MAP=\{.*?\};/,"var DEFAULT_TAG_MAP="+tJson+";");
+    var encoded=btoa(unescape(encodeURIComponent(updated)));
     var commitRes=await fetch("https://api.github.com/repos/"+repo+"/contents/index.html",{
       method:"PUT",
-      headers:{"Authorization":"token "+token,"Accept":"application/vnd.github.v3+json","Content-Type":"application/json"},
-      body:JSON.stringify({message:"Update handbook content via Manager Mode",content:encoded,sha:sha})
+      headers:{"Authorization":"Bearer "+token,"Accept":"application/vnd.github.v3+json","Content-Type":"application/json"},
+      body:JSON.stringify({message:"Update handbook [Manager Mode]",content:encoded,sha:sha})
     });
-    if(!commitRes.ok){var e=await commitRes.json();throw new Error(e.message);}
-
-    if(btn){btn.textContent="Published!";btn.disabled=false;}
+    if(!commitRes.ok){var ce=await commitRes.json();throw new Error(ce.message||"Commit failed");}
+    if(btn){btn.textContent="\u2713 Published!";btn.disabled=false;}
     setTimeout(function(){if(btn){btn.textContent="Publish";btn.disabled=false;}},3000);
-    alert("Published! Vercel will deploy in about 30 seconds and everyone will see your changes.");
-
   }catch(e){
+    if(e.message&&e.message.toLowerCase().includes("bad credential")){localStorage.removeItem("gh_token");}
     alert("Publish failed: "+e.message);
     if(btn){btn.textContent="Publish";btn.disabled=false;}
   }
@@ -465,7 +438,7 @@ async function publishChanges(){
 
 async function loadFromKV(){
   try{
-    var r=await fetch("/api/pages");
+    var r=await fetch("/api/disabled");
     if(!r.ok)return;
     var d=await r.json();
     if(d.pages&&Array.isArray(d.pages)&&d.pages.length)
@@ -481,7 +454,7 @@ async function publishChanges(){
   var btn=document.getElementById("publishBtn");
   if(btn){btn.textContent="Saving...";btn.disabled=true;}
   try{
-    var r=await fetch("/api/pages",{
+    var r=await fetch("/api/disabled",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({pages:getPages(),sections:getSections(),tagmap:getTagMap(),password:MGR_PW})
@@ -501,24 +474,13 @@ document.addEventListener("DOMContentLoaded",function(){
   catTabs=document.getElementById("catTabs");
   editOverlay=document.getElementById("editOverlay");
   editModal=document.getElementById("editModal");
-
   searchInput.addEventListener("input",function(){if(document.body.classList.contains("showing-page"))goHome();renderHome(searchInput.value,activeCat);});
   catTabs.addEventListener("click",function(e){var tab=e.target.closest(".cat-tab");if(!tab)return;activeCat=tab.dataset.filter;catTabs.querySelectorAll(".cat-tab").forEach(function(t){t.classList.toggle("active",t===tab);});renderHome(searchInput.value,activeCat);});
   document.addEventListener("keydown",function(e){if(e.key==="Escape"){if(editOverlay.classList.contains("show"))closeEditor();else if(document.getElementById("pwOverlay").classList.contains("show"))document.getElementById("pwOverlay").classList.remove("show");else if(document.body.classList.contains("showing-page"))goHome();}});
   editOverlay.addEventListener("click",function(e){if(e.target===editOverlay)closeEditor();});
   document.getElementById("pwOverlay").addEventListener("click",function(e){if(e.target.id==="pwOverlay")e.target.classList.remove("show");});
-
-  loadFromKV().then(function(){
-    loadFromKV().then(function(){
-    sectionOrder=getSections();tagMap=getTagMap();renderTabs();renderHome();
-  }).catch(function(){sectionOrder=getSections();tagMap=getTagMap();renderTabs();renderHome();});
-  }).catch(function(){
-    loadFromKV().then(function(){
-    sectionOrder=getSections();tagMap=getTagMap();renderTabs();renderHome();
-  }).catch(function(){sectionOrder=getSections();tagMap=getTagMap();renderTabs();renderHome();});
-  });
+  sectionOrder=getSections();tagMap=getTagMap();renderTabs();renderHome();
 });
-document.getElementById("pwOverlay").addEventListener("click",function(e){if(e.target.id==="pwOverlay")e.target.classList.remove("show");});
 
 </script>
 </body>
