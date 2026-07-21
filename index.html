@@ -383,48 +383,83 @@ function exportSite(){
   alert("Downloaded! Replace the index.html in your GitHub repo with this file to push your changes live for everyone.");
 }
 
-// ── KV STORAGE ──
+// ── GITHUB STORAGE ──
+// These are set once by the manager
+var GH_TOKEN=localStorage.getItem("gh_token")||"";
+var GH_REPO=localStorage.getItem("gh_repo")||"";  // e.g. "appleusername/basecamp_convex"
+
 async function loadFromKV(){
-  try{
-    var r=await fetch("/api/pages");
-    if(!r.ok)return false;
-    var d=await r.json();
-    if(d.pages&&Array.isArray(d.pages)&&d.pages.length){
-      localStorage.setItem("kb_pages",JSON.stringify(d.pages));
-    }
-    if(d.sections&&Array.isArray(d.sections)&&d.sections.length){
-      localStorage.setItem("kb_sections",JSON.stringify(d.sections));
-    }
-    if(d.tagmap&&typeof d.tagmap==="object"){
-      localStorage.setItem("kb_tagmap",JSON.stringify(d.tagmap));
-    }
-    return true;
-  }catch(e){
-    console.log("KV unavailable, using local data");
-    return false;
-  }
+  // No remote load needed - Vercel serves the latest committed file
+  // Just use whatever is in the HTML (DEFAULT_PAGES) or localStorage
+  return;
 }
 
 async function publishChanges(){
+  // Check if GitHub is configured
+  var token=localStorage.getItem("gh_token");
+  var repo=localStorage.getItem("gh_repo");
+
+  if(!token||!repo){
+    var t=prompt("Enter your GitHub Personal Access Token (with repo scope):");
+    if(!t){return;}
+    var r=prompt("Enter your GitHub repo (e.g. yourusername/basecamp_convex):");
+    if(!r){return;}
+    localStorage.setItem("gh_token",t.trim());
+    localStorage.setItem("gh_repo",r.trim());
+    token=t.trim();repo=r.trim();
+  }
+
   var btn=document.getElementById("publishBtn");
-  if(btn){btn.textContent="Saving...";btn.disabled=true;}
+  if(btn){btn.textContent="Publishing...";btn.disabled=true;}
+
   try{
-    var r=await fetch("/api/pages",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        pages:getPages(),
-        sections:getSections(),
-        tagmap:getTagMap(),
-        password:MGR_PW
-      })
+    // Get current file SHA (required for update)
+    var shaRes=await fetch("https://api.github.com/repos/"+repo+"/contents/index.html",{
+      headers:{"Authorization":"token "+token,"Accept":"application/vnd.github.v3+json"}
     });
-    if(!r.ok){var d=await r.json();throw new Error(d.error||"Save failed");}
-    if(btn){btn.innerHTML="&#10003; Published!";btn.disabled=false;}
-    setTimeout(function(){if(btn){btn.innerHTML="&#10003; Publish";btn.disabled=false;}},2500);
+    if(!shaRes.ok)throw new Error("Could not access repo. Check your token and repo name.");
+    var shaData=await shaRes.json();
+    var sha=shaData.sha;
+
+    // Build updated index.html with current pages baked in
+    var pages=getPages();
+    var sections=getSections();
+    var tm=getTagMap();
+    var pagesJson=JSON.stringify(pages);
+    var sectJson=JSON.stringify(sections);
+    var tmJson=JSON.stringify(tm);
+
+    // Get current file content
+    var currentContent=atob(shaData.content.replace(/\n/g,""));
+
+    // Replace DEFAULT_PAGES
+    currentContent=currentContent.replace(/var DEFAULT_PAGES=JSON\.parse\(.*?\);/,
+      "var DEFAULT_PAGES=JSON.parse("+JSON.stringify(pagesJson)+");");
+    // Replace DEFAULT_SECTIONS
+    currentContent=currentContent.replace(/var DEFAULT_SECTIONS=\[.*?\];/,
+      "var DEFAULT_SECTIONS="+sectJson+";");
+    // Replace DEFAULT_TAG_MAP
+    currentContent=currentContent.replace(/var DEFAULT_TAG_MAP=\{.*?\};/,
+      "var DEFAULT_TAG_MAP="+tmJson+";");
+
+    // Encode back to base64
+    var encoded=btoa(unescape(encodeURIComponent(currentContent)));
+
+    // Commit to GitHub
+    var commitRes=await fetch("https://api.github.com/repos/"+repo+"/contents/index.html",{
+      method:"PUT",
+      headers:{"Authorization":"token "+token,"Accept":"application/vnd.github.v3+json","Content-Type":"application/json"},
+      body:JSON.stringify({message:"Update handbook content via Manager Mode",content:encoded,sha:sha})
+    });
+    if(!commitRes.ok){var e=await commitRes.json();throw new Error(e.message);}
+
+    if(btn){btn.textContent="Published!";btn.disabled=false;}
+    setTimeout(function(){if(btn){btn.textContent="Publish";btn.disabled=false;}},3000);
+    alert("Published! Vercel will deploy in about 30 seconds and everyone will see your changes.");
+
   }catch(e){
-    alert("Could not publish: "+e.message+"\n\nMake sure Vercel KV is connected in your Vercel dashboard.");
-    if(btn){btn.innerHTML="&#10003; Publish";btn.disabled=false;}
+    alert("Publish failed: "+e.message);
+    if(btn){btn.textContent="Publish";btn.disabled=false;}
   }
 }
 
